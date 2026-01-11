@@ -46,9 +46,13 @@ func (s *Server) Handler() http.Handler {
 	r.Handle("/metrics", promhttp.Handler())
 
 	r.Route("/v1", func(r chi.Router) {
+		r.Post("/accounts", s.createAccount)
 		r.Get("/accounts", s.listAccounts)
 		r.Get("/accounts/{id}", s.getAccount)
 		r.Get("/accounts/{id}/transactions", s.listTxns)
+		r.Post("/deposits", s.deposit)
+		r.Post("/withdrawals", s.withdraw)
+		r.Post("/transfers", s.transfer)
 		r.Get("/transactions", s.listTxns)
 		r.Get("/reconcile", s.reconcile)
 		r.Get("/stats", func(w http.ResponseWriter, r *http.Request) {

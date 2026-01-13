@@ -46,8 +46,7 @@ func (r *Relay) Run(ctx context.Context) {
 // deletes them in the same transaction. If publishing fails the transaction
 // rolls back and the events stay put; if the process dies after XADD but
 // before COMMIT they are published again. Delivery is therefore
-// at-least-once: consumers dedupe on the event's transaction id (also sent
-// as the "outbox_id" field). SKIP LOCKED lets several relays run at once, at
+// at-least-once: consumers dedupe on the "outbox_id" field. SKIP LOCKED lets several relays run at once, at
 // the cost of global ordering across relays.
 func (r *Relay) PublishBatch(ctx context.Context) (int, error) {
 	tx, err := r.Pool.Begin(ctx)

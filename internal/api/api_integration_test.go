@@ -226,3 +226,19 @@ func TestConcurrentTransfersPreserveInvariants(t *testing.T) {
 		t.Fatal("no transfer succeeded")
 	}
 }
+
+func TestDemoBurst(t *testing.T) {
+	c := newClient(t)
+	var out struct {
+		Committed, Rejected, Errors int
+		Reconcile                   ledger.Report
+	}
+	for range 2 { // second run reuses the seeded accounts
+		if code, _ := c.do("POST", "/v1/demo/burst", "", map[string]int{"transfers": 500, "concurrency": 16}, &out); code != 200 {
+			t.Fatalf("burst: %d", code)
+		}
+		if out.Errors != 0 || out.Committed == 0 || out.Committed+out.Rejected != 500 || !out.Reconcile.OK {
+			t.Fatalf("burst result %+v", out)
+		}
+	}
+}

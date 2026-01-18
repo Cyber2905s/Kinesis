@@ -58,6 +58,9 @@ func (s *Server) Handler() http.Handler {
 		r.Get("/stats", func(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusOK, map[string]int64{"committed": s.committed.Load()})
 		})
+		if s.demo {
+			r.Post("/demo/burst", s.burst)
+		}
 	})
 	return r
 }

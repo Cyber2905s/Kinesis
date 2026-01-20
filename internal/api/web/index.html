@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kinesis Ledger</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #fff; --ink: #14171c; --muted: #667085; --line: #e4e7ec;
+    --accent: #2f6fed; --ok: #12805c; --bad: #c4320a; --chart: #2f6fed;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0e1116; --panel: #161b22; --ink: #e6edf3; --muted: #8b949e; --line: #262d36;
+      --accent: #6ea8fe; --ok: #3fb68b; --bad: #f47067; --chart: #6ea8fe; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 1180px; margin: 0 auto; padding: 24px 16px 48px; }
+  header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
+  h1 { font-size: 20px; margin: 0; letter-spacing: -0.01em; }
+  h2 { font-size: 13px; font-weight: 600; margin: 0 0 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+  .sub { color: var(--muted); }
+  .num { font-variant-numeric: tabular-nums; font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+  .grid { display: grid; gap: 16px; }
+  .tiles { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); margin-bottom: 16px; }
+  .two { grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); margin-top: 16px; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; min-width: 0; }
+  .tile .v { font-size: 28px; font-weight: 600; margin-top: 2px; }
+  .tile .l { color: var(--muted); font-size: 12px; }
+  .ok { color: var(--ok); } .bad { color: var(--bad); }
+  canvas { width: 100%; height: 160px; display: block; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; }
+  td.r, th.r { text-align: right; }
+  .scroll { overflow-x: auto; }
+  form { display: flex; gap: 10px; align-items: end; flex-wrap: wrap; }
+  label { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
+  input { width: 110px; padding: 7px 9px; border: 1px solid var(--line); border-radius: 7px; background: var(--bg); color: var(--ink); font: inherit; }
+  button { padding: 8px 16px; border: 0; border-radius: 7px; background: var(--accent); color: #fff; font: inherit; font-weight: 600; cursor: pointer; }
+  button:disabled { opacity: .55; cursor: progress; }
+  button.ghost { background: transparent; color: var(--accent); border: 1px solid var(--line); padding: 4px 10px; font-weight: 500; }
+  .checks { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px 16px; margin-top: 14px; }
+  .checks div { display: flex; justify-content: space-between; border-bottom: 1px dashed var(--line); padding: 3px 0; }
+  .kind { font-size: 12px; padding: 1px 7px; border-radius: 99px; border: 1px solid var(--line); color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Kinesis</h1>
+    <span class="sub">double-entry ledger · live</span>
+  </header>
+
+  <section class="grid tiles">
+    <div class="panel tile"><div class="l">Throughput (this API instance)</div><div class="v num" id="tps">–</div><div class="l">committed transfers / s</div></div>
+    <div class="panel tile"><div class="l">Committed since start</div><div class="v num" id="committed">–</div><div class="l">postings via this instance</div></div>
+    <div class="panel tile"><div class="l">Ledger invariants</div><div class="v" id="inv">–</div><div class="l" id="inv-detail">&nbsp;</div></div>
+    <div class="panel tile"><div class="l">Transactions in ledger</div><div class="v num" id="txcount">–</div><div class="l">from last reconciliation</div></div>
+  </section>
+
+  <section class="panel">
+    <h2>Transfers per second · last 60 s</h2>
+    <canvas id="chart" aria-label="Transfers per second over the last minute" role="img"></canvas>
+  </section>
+
+  <section class="grid two">
+    <div class="panel">
+      <h2>Load burst</h2>
+      <form id="burst">
+        <label>Transfers <input id="n" type="number" min="1" max="20000" value="3000"></label>
+        <label>Concurrency <input id="c" type="number" min="1" max="128" value="32"></label>
+        <button id="go" type="submit">Run load burst</button>
+      </form>
+      <p class="sub" id="burst-note">Fires transfers between 20 demo users and a 16-shard hot merchant account, then reconciles the whole ledger.</p>
+      <div class="checks num" id="burst-out" hidden></div>
+    </div>
+    <div class="panel">
+      <h2>Reconciliation <button class="ghost" id="recheck" type="button">Check now</button></h2>
+      <div class="checks num" id="recon"></div>
+    </div>
+  </section>
+
+  <section class="grid two">
+    <div class="panel"><h2>Recent transactions</h2><div class="scroll"><table id="txns"><thead><tr><th>ID</th><th>Kind</th><th>From</th><th>To</th><th class="r">Amount</th><th class="r">Age</th></tr></thead><tbody></tbody></table></div></div>
+    <div class="panel"><h2>Account balances</h2><div class="scroll"><table id="accts"><thead><tr><th>ID</th><th>Name</th><th class="r">Shards</th><th class="r">Balance</th></tr></thead><tbody></tbody></table></div></div>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const money = (minor) => (minor / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const get = (path) => fetch(path).then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); });
+
+// Build rows with textContent only: account names are user input.
+function fill(tbody, rows) {
+  tbody.replaceChildren(...rows.map((cells) => {
+    const tr = document.createElement("tr");
+    for (const [text, cls] of cells) {
+      const td = document.createElement("td");
+      td.textContent = text;
+      if (cls) td.className = cls;
+      tr.append(td);
+    }
+    return tr;
+  }));
+}
+
+function checks(el, pairs) {
+  el.replaceChildren(...pairs.map(([k, v, good]) => {
+    const d = document.createElement("div");
+    const a = document.createElement("span"); a.textContent = k;
+    const b = document.createElement("span"); b.textContent = v;
+    if (good !== undefined) b.className = good ? "ok" : "bad";
+    d.append(a, b);
+    return d;
+  }));
+}
+
+// ---- live TPS -----------------------------------------------------------
+const series = new Array(60).fill(0);
+let last = null;
+async function pollStats() {
+  try {
+    const { committed } = await get("/v1/stats");
+    const now = performance.now();
+    if (last) {
+      const tps = Math.max(0, (committed - last.n) / ((now - last.t) / 1000));
+      series.push(tps); series.shift();
+      $("tps").textContent = Math.round(tps).toLocaleString();
+    }
+    last = { n: committed, t: now };
+    $("committed").textContent = committed.toLocaleString();
+    draw();
+  } catch { /* API restarting; keep last values */ }
+}
+
+function draw() {
+  const cv = $("chart"), dpr = devicePixelRatio || 1;
+  const w = cv.clientWidth, h = cv.clientHeight;
+  cv.width = w * dpr; cv.height = h * dpr;
+  const g = cv.getContext("2d"); g.scale(dpr, dpr);
+  const css = getComputedStyle(document.documentElement);
+  const max = Math.max(10, ...series) * 1.15, pad = 4;
+  g.strokeStyle = css.getPropertyValue("--line"); g.lineWidth = 1;
+  g.fillStyle = css.getPropertyValue("--muted"); g.font = "11px ui-monospace, monospace";
+  for (const f of [0.5, 1]) {
+    const y = h - (h - pad) * f / 1.15;
+    g.beginPath(); g.moveTo(0, y); g.lineTo(w, y); g.stroke();
+    g.fillText(Math.round(max / 1.15 * f).toLocaleString(), 4, y - 4);
+  }
+  const x = (i) => (i / (series.length - 1)) * w, y = (v) => h - (v / max) * (h - pad);
+  const color = css.getPropertyValue("--chart");
+  g.beginPath(); series.forEach((v, i) => i ? g.lineTo(x(i), y(v)) : g.moveTo(x(i), y(v)));
+  g.strokeStyle = color; g.lineWidth = 2; g.stroke();
+  g.lineTo(w, h); g.lineTo(0, h); g.closePath();
+  g.globalAlpha = 0.12; g.fillStyle = color; g.fill(); g.globalAlpha = 1;
+}
+
+// ---- tables ---------------------------------------------------------------
+async function pollTables() {
+  try {
+    const [txns, accts] = await Promise.all([get("/v1/transactions?limit=12"), get("/v1/accounts?limit=40")]);
+    const now = Date.now();
+    fill($("txns").tBodies[0], txns.data.map((t) => [
+      [t.id, "num"], [t.kind, "kind"], [t.debit_account_id, "num"], [t.credit_account_id, "num"],
+      [money(t.amount), "r num"], [Math.max(0, Math.round((now - Date.parse(t.created_at)) / 1000)) + "s", "r num"],
+    ]));
+    fill($("accts").tBodies[0], accts.data.map((a) => [
+      [a.id, "num"], [a.name], [a.shards, "r num"], [money(a.balance), "r num " + (a.balance < 0 ? "bad" : "")],
+    ]));
+  } catch { /* ignore transient errors */ }
+}
+
+// ---- reconciliation -------------------------------------------------------
+function showRecon(r) {
+  $("inv").textContent = r.ok ? "Hold ✓" : "Violated ✗";
+  $("inv").className = "v " + (r.ok ? "ok" : "bad");
+  $("inv-detail").textContent = `checked ${new Date(r.checked_at).toLocaleTimeString()} in ${r.duration_ms} ms`;
+  $("txcount").textContent = r.transactions.toLocaleString();
+  checks($("recon"), [
+    ["Σ all entries", r.entries_sum, r.entries_sum === 0],
+    ["Unbalanced txns", r.unbalanced_txns, r.unbalanced_txns === 0],
+    ["Shard ≠ entries", r.shard_mismatches, r.shard_mismatches === 0],
+    ["Negative balances", r.negative_balances, r.negative_balances === 0],
+  ]);
+}
+const recon = () => get("/v1/reconcile").then(showRecon).catch(() => {});
+$("recheck").onclick = recon;
+
+// ---- burst ------------------------------------------------------------------
+$("burst").onsubmit = async (e) => {
+  e.preventDefault();
+  const btn = $("go"); btn.disabled = true; btn.textContent = "Running…";
+  try {
+    const r = await fetch("/v1/demo/burst", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ transfers: +$("n").value, concurrency: +$("c").value }),
+    });
+    const out = await r.json();
+    if (!r.ok) throw new Error(out.error || r.status);
+    $("burst-out").hidden = false;
+    checks($("burst-out"), [
+      ["Committed", out.committed.toLocaleString()], ["Rejected (NSF)", out.rejected.toLocaleString()],
+      ["Errors", out.errors, out.errors === 0], ["Wall time", out.duration_ms + " ms"],
+      ["Throughput", Math.round(out.tps).toLocaleString() + " tps"], ["p50 / p99", `${out.p50_ms} / ${out.p99_ms} ms`],
+      ["Invariants", out.reconcile.ok ? "hold" : "VIOLATED", out.reconcile.ok],
+    ]);
+    showRecon(out.reconcile);
+    pollTables();
+  } catch (err) {
+    $("burst-note").textContent = "Burst failed: " + err.message + " (is DEMO_ENABLED=true?)";
+  } finally {
+    btn.disabled = false; btn.textContent = "Run load burst";
+  }
+};
+
+addEventListener("resize", draw);
+pollStats(); pollTables(); recon();
+setInterval(pollStats, 1000);
+setInterval(pollTables, 2000);
+setInterval(recon, 15000);
+</script>
+</body>
+</html>

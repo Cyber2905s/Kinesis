@@ -36,6 +36,7 @@ func (s *Server) Handler() http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.Recoverer, s.observe)
 
+	r.Get("/", serveDashboard)
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		if err := s.pool.Ping(r.Context()); err != nil {
 			writeError(w, http.StatusServiceUnavailable, "database unavailable")

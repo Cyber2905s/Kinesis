@@ -1,0 +1,56 @@
+# One command: docker compose up --build
+# Dashboard: http://localhost:8080  ·  API: http://localhost:8080/v1  ·  metrics: /metrics
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: kinesis
+      POSTGRES_PASSWORD: kinesis
+      POSTGRES_DB: kinesis
+    command: ["postgres", "-c", "max_connections=200", "-c", "shared_buffers=512MB"]
+    ports: ["127.0.0.1:${PG_PORT:-5432}:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kinesis -d kinesis"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  redis:
+    image: redis:7-alpine
+    ports: ["127.0.0.1:${REDIS_PORT:-6379}:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      retries: 30
+
+  # Serves the HTTP API and the dashboard.
+  api:
+    build: .
+    command: ["api"]
+    environment: &env
+      DATABASE_URL: postgres://kinesis:kinesis@postgres:5432/kinesis?sslmode=disable
+      REDIS_URL: redis://redis:6379/0
+      DB_MAX_CONNS: "48"
+      LOG_LEVEL: info
+      DEMO_ENABLED: "true"
+    ports: ["8080:8080"]
+    depends_on:
+      postgres: { condition: service_healthy }
+    restart: unless-stopped
+
+  # Outbox relay to Redis Streams + periodic reconciliation.
+  worker:
+    build: .
+    command: ["worker"]
+    environment:
+      <<: *env
+      DB_MAX_CONNS: "4"
+      RECON_INTERVAL: 30s
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    restart: unless-stopped
+
+volumes:
+  pgdata:

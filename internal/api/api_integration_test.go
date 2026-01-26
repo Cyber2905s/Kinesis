@@ -54,7 +54,7 @@ func (c *client) do(method, path, key string, body any, out any) (int, http.Head
 		c.t.Error(err)
 		return 0, nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	raw, _ := io.ReadAll(resp.Body)
 	if out != nil {
 		if err := json.Unmarshal(raw, out); err != nil {

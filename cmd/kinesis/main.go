@@ -88,7 +88,7 @@ func run(ctx context.Context, cmd string, cfg config.Config, log *slog.Logger) e
 			return err
 		}
 		rdb := redis.NewClient(opts)
-		defer rdb.Close()
+		defer func() { _ = rdb.Close() }()
 		relay := &outbox.Relay{Pool: pool, Redis: rdb, Stream: cfg.OutboxStream, Batch: cfg.OutboxBatch, Interval: cfg.OutboxInterval, Log: log}
 		go relay.Run(ctx)
 		go every(ctx, cfg.ReconInterval, func() { reconcile(ctx, pool, log) })

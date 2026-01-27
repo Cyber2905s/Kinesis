@@ -1,0 +1,7 @@
+# Postgres data on tmpfs: removes disk fsync latency so benchmarks measure the
+# ledger's locking/CPU cost rather than the host's disk. Not durable.
+#   docker compose -f docker-compose.yml -f loadtest/tmpfs.override.yml up --build -d
+services:
+  postgres:
+    volumes: !reset []
+    tmpfs: [/var/lib/postgresql/data:size=2g]
